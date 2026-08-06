@@ -1,7 +1,6 @@
-import { ExtensionRegistry, SettingsStore } from './api';
+import { APP_STATE_STORE_CAPABILITY, DefaultAppStateStore, ExtensionRegistry } from './api';
 
 export * from './api';
 
 window.qwappRegistry = new ExtensionRegistry();
-window.qwappSettingsStore = new SettingsStore();
-window.qwappSettingsStore.load();
+window.qwappRegistry.registerCapability(APP_STATE_STORE_CAPABILITY, new DefaultAppStateStore());

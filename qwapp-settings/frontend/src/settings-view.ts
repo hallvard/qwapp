@@ -1,5 +1,11 @@
 import { LitElement, html, css } from 'lit';
-import type { SettingsStore, Settings } from 'qwapp-frontend-api';
+import type { Settings } from 'qwapp-frontend-api';
+import {
+  addSettingsListener,
+  getSettings,
+  removeSettingsListener,
+  updateSettings,
+} from './settings-store';
 
 export class SettingsView extends LitElement {
   static styles = css`
@@ -23,30 +29,28 @@ export class SettingsView extends LitElement {
 
   declare settings: Settings;
 
-  private store: SettingsStore = window.qwappSettingsStore;
-
   private onStoreChange = () => {
-    this.settings = { ...this.store.get() };
+    this.settings = { ...getSettings() };
   };
 
   constructor() {
     super();
-    this.settings = { ...this.store.get() };
+    this.settings = { ...getSettings() };
   }
 
   connectedCallback() {
     super.connectedCallback();
-    this.store.addEventListener('change', this.onStoreChange);
+    addSettingsListener(this.onStoreChange);
   }
 
   disconnectedCallback() {
-    this.store.removeEventListener('change', this.onStoreChange);
+    removeSettingsListener(this.onStoreChange);
     super.disconnectedCallback();
   }
 
   private onThemeChange(event: Event) {
     const value = (event.target as HTMLSelectElement).value;
-    this.store.update({ theme: value });
+    void updateSettings({ theme: value });
   }
 
   render() {

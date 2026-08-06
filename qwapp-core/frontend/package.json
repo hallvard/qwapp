@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && node -e \"require('fs').renameSync('../src/main/resources/META-INF/resources/index.html', '../src/main/resources/META-INF/resources/shell.html')\"",
+    "build": "tsc && vite build --config vite.config.ts",
+    "watch": "vite build --watch --config vite.config.ts --emptyOutDir false",
     "preview": "vite preview"
   },
   "devDependencies": {

@@ -11,6 +11,7 @@
     <module>qwapp-api</module>
     <module>qwapp-core</module>
     <module>qwapp-settings</module>
+    <module>ol-map</module>
     <module>sample-app</module>
   </modules>
 
@@ -21,9 +22,10 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
     <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
-    <quarkus.platform.version>3.37.3</quarkus.platform.version>
+    <quarkus.platform.version>3.37.2</quarkus.platform.version>
     <frontend-maven-plugin.version>1.15.1</frontend-maven-plugin.version>
     <frontend-maven-plugin.nodeVersion>v22.14.0</frontend-maven-plugin.nodeVersion>
+    <frontend.skip>false</frontend.skip>
     <skipITs>true</skipITs>
     <surefire-plugin.version>3.5.6</surefire-plugin.version>
   </properties>
@@ -38,6 +40,12 @@
         <scope>import</scope>
       </dependency>
       <dependency>
+          <groupId>com.fasterxml.jackson.core</groupId>
+          <artifactId>jackson-databind</artifactId>
+          <version>2.22.1</version>
+          <scope>compile</scope>
+      </dependency>
+      <dependency>
         <groupId>no.hal.qwapp</groupId>
         <artifactId>qwapp-api</artifactId>
         <version>${project.version}</version>
@@ -50,6 +58,11 @@
       <dependency>
         <groupId>no.hal.qwapp</groupId>
         <artifactId>qwapp-settings</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>no.hal.qwapp</groupId>
+        <artifactId>ol-map</artifactId>
         <version>${project.version}</version>
       </dependency>
     </dependencies>
@@ -80,6 +93,7 @@
           <configuration>
             <workingDirectory>frontend</workingDirectory>
             <nodeVersion>${frontend-maven-plugin.nodeVersion}</nodeVersion>
+            <skip>${frontend.skip}</skip>
           </configuration>
           <executions>
             <execution>

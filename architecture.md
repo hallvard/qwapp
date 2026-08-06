@@ -1,166 +1,152 @@
 # Architecture
 
-qwapp is a modular monolith: independently buildable Quarkus modules are composed into one running JVM process via ordinary Maven dependencies, and their frontends are composed into one HTML page at request time. This document explains how that composition actually works.
+qwapp is a modular monolith: independently buildable Quarkus modules are composed into one JVM process through normal Maven dependencies, and their frontend contributions are composed into one shell page at runtime.
 
 ## Module layout
 
 ```
 qwapp-parent (pom, reactor root)
-├── qwapp-api       shared types extension modules depend on
-├── qwapp-core      the shell: empty-by-itself, hosts the composition mechanism
-├── qwapp-settings  an example extension module
-└── sample-app      a runnable app depending on qwapp-core + qwapp-settings
+├── qwapp-api       shared backend SPI types
+├── qwapp-core      shell + frontend composition/runtime
+├── qwapp-settings  example feature module (settings API + UI)
+├── ol-map          example feature module (OpenLayers map UI)
+└── sample-app      runnable composition app
 ```
 
-The dependency direction is deliberately one-way to avoid cycles: `qwapp-api` depends on nothing of ours; `qwapp-core` and `qwapp-settings` depend on `qwapp-api`; `sample-app` depends on both. Nothing depends on `sample-app`. This is why the shared SPI lives in its own `qwapp-api` module rather than in `qwapp-core` directly — `qwapp-settings` needs the SPI but must not need `qwapp-core`'s composition logic to compile.
+Dependency direction is one-way:
 
-Each Quarkus module (`qwapp-core`, `qwapp-settings`) is independently runnable in dev mode (own port, own `application.properties`), and also produces a plain jar that other modules can depend on — `sample-app` is what actually combines them into one process.
+- `qwapp-api` has no project-local dependencies.
+- `qwapp-core`, `qwapp-settings`, and `ol-map` depend on `qwapp-api`.
+- `sample-app` depends on the feature modules it wants to include.
 
-## Backend composition: CDI across module jars
+This keeps module boundaries clean and avoids cycles.
 
-Quarkus/Arc only indexes CDI beans and JAX-RS resources from jars it recognizes as "bean archives." A plain Maven dependency jar isn't indexed by default, so both `qwapp-core` and `qwapp-settings` carry an empty `META-INF/beans.xml` (`bean-discovery-mode="all"`) — this is what makes their `@ApplicationScoped` beans and `@Path` resources visible when `sample-app` merely depends on them as jars, with no extra wiring.
+## Backend composition (CDI + REST)
 
-### The extension SPI
-
-`qwapp-api` defines the one thing every extension module needs:
+Feature modules expose `FrontendContribution` beans from `qwapp-api`:
 
 ```java
-// no.hal.qwapp.api.FrontendContribution
 public interface FrontendContribution {
     String scriptPath();
 }
 ```
 
-It started with more fields (`id`, `navLabel`, `route`) but they were removed once unused — the frontend side ended up owning navigation/routing metadata instead (see below), so the backend SPI only needs to say *where the module's self-registering script lives*.
+Each module contributes the script path for its self-registering frontend bundle, for example:
 
-`qwapp-settings` implements it as a CDI bean:
+- `qwapp-settings`: `/modules/settings/module.js`
+- `ol-map`: `/modules/ol-map/module.js`
 
-```java
-// no.hal.qwapp.settings.SettingsFrontendContribution
-@ApplicationScoped
-public class SettingsFrontendContribution implements FrontendContribution {
-    public String scriptPath() { return "/modules/settings/module.js"; }
-}
-```
+`qwapp-core` gathers these contributions via CDI (`Instance<FrontendContribution>`) in `FrontendShellResource` and injects one `<script type="module">` tag per contribution into the shell HTML.
 
-### Composing the shell page
+### Shell HTML and frontend route handling
 
-`qwapp-core`'s `FrontendShellResource` (`no.hal.qwapp.frontend`, `@Path("/")`) injects `Instance<FrontendContribution>` and, on every request to `/`:
+- `FrontendShellResource` serves the shell and injects:
+  - an import map for shared dependencies (currently `lit`),
+  - environment meta tags (`env.*`),
+  - module script tags from contributions.
+- `FrontendPrefixRequestFilter` intercepts browser navigations under `qwapp.frontend.path-prefix` (default `/app`) and serves the shell for SPA routes.
+- Backend routes like `/api/*` and `/q/*` are left to Quarkus handlers.
 
-1. Reads the shell's own built HTML template.
-2. Injects a `<script type="importmap">` for shared dependencies (see below) as the first child of `<head>`.
-3. Appends one `<script type="module" src="{scriptPath}">` per contribution before `</body>`.
+This allows deep-linking to frontend routes while keeping backend endpoints separate.
 
-Run `qwapp-core` alone and `Instance<FrontendContribution>` is empty — you get the bare shell, no script tags. Add `qwapp-settings` as a dependency (as `sample-app` does) and its script gets injected automatically, with zero configuration beyond the Maven dependency.
+## Frontend composition (capabilities)
 
-**A non-obvious wrinkle**: Quarkus's static-resource handler serves any classpath `META-INF/resources/index.html` directly at `/`, which silently wins over an explicit `@Path("/")` JAX-RS resource (confirmed by the response carrying a `Last-Modified` header, which only the static handler adds). To let `FrontendShellResource` actually be the one answering `/`, `qwapp-core`'s frontend build renames its output from `index.html` to `shell.html` (see `qwapp-core/frontend/package.json`'s `build` script) — no static route ever claims `/`, so only the dynamic resource can serve it.
+The frontend no longer uses string extension-point IDs. It uses typed capability descriptors.
 
-## Frontend composition: the extension-point mechanism
+Core primitives in `qwapp-core/frontend/src/api/capability.ts`:
 
-Rather than a single hardcoded "list of routes," the shell exposes a generic mechanism, defined in `qwapp-core/frontend/src/api/index.ts`:
+- `defineSingleCapability<T>(key)`
+- `defineMultiCapability<T>(key)`
 
-```ts
-interface Extension<C, T> {
-  extensionId: string;   // which extension point this targets
-  qualifier: string;     // stable id for this specific extension
-  predicate: (context: C) => boolean;  // is it active for this context?
-  factory: (context: C) => T;          // produce the content
-}
+The registry in `qwapp-core/frontend/src/api/index.ts` stores capability values by key:
 
-class ExtensionRegistry extends EventTarget {
-  register<C, T>(extension: Extension<C, T>): void;
-  getExtensions<C, T>(extensionId: string, context: C): Extension<C, T>[];
-}
-```
+- `registerCapability(capability, value)`
+- `getCapability(singleCapability)`
+- `getCapabilities(multiCapability)`
 
-`qwapp-shell.ts` renders two extension points, both keyed on `ShellContext = { path: string }`:
+### Extension types
 
-- `NAV_EXTENSION_ID` ("qwapp.nav") — rendered inside `<nav>`.
-- `VIEW_EXTENSION_ID` ("qwapp.view") — rendered inside `<main>`.
+`Extension` is minimal metadata:
 
-At render time it calls `registry.getExtensions(id, context)` and renders every matching extension's `factory(context)` — which returns a Lit `TemplateResult` directly, so nested templates compose naturally (no dynamic-tag-name tricks needed).
+- `qualifier`
 
-### The module contract
+Two specialized extension kinds are used:
 
-A contributed script (loaded via the injected `<script type="module">` tag) is expected to, on load, call `window.qwappRegistry.register(...)` for whatever it wants to contribute. `qwapp-settings/frontend/src/module.ts` is the reference example:
+- `NavbarExtension`: `routePath`, `label`
+- `ContentExtension<C, T>`: `predicate(context)`, `factory(context)`
 
-```ts
-export function register(registry: ExtensionRegistry) {
-  registry.register<ShellContext, unknown>({
-    extensionId: NAV_EXTENSION_ID,
-    qualifier: 'settings-nav-button',
-    predicate: () => true,
-    factory: () => html`<a href="/settings">Settings</a>`,
-  });
-  registry.register<ShellContext, unknown>({
-    extensionId: VIEW_EXTENSION_ID,
-    qualifier: 'settings-view',
-    predicate: (context) => context.path === '/settings',
-    factory: () => html`<settings-view></settings-view>`,
-  });
-}
+Defined capabilities:
 
-register(window.qwappRegistry);
-```
+- `NAVBAR_EXTENSIONS_CAPABILITY` (`multi`, `NavbarExtension`)
+- `PANE_CONTENT_EXTENSIONS_CAPABILITY` (`multi`, `ContentExtension<ShellContext, unknown>`)
 
-It both *exports* `register` (reusable/inspectable) and *calls* it immediately against the shell's global registry — since it's loaded via a plain `<script type="module">` tag rather than a dynamic `import()`, self-invocation is what actually gets it registered. This works reliably because module scripts execute in document order (like `defer`), and the shell's own script — which sets up `window.qwappRegistry` — always appears before any injected contribution script.
+`NavbarExtension` is metadata-only and does not render itself. Rendering logic is owned by the shell/nav component.
 
-## Sharing code across independently-built frontend bundles
+## Shell runtime behavior
 
-Each module's frontend is built separately (separate Vite project, separate npm dependencies, separate bundle). Naively, that means duplicated code wherever two modules need the same thing. Three different sharing mechanisms are used here, chosen per situation:
+`qwapp-shell` reads both capability sets and builds tabs through `qwapp-nav-bar` helpers.
 
-**1. Shared TypeScript source, via a path alias (types + small reusable classes).**
-`qwapp-core/frontend/src/api/` holds `Extension`, `ExtensionRegistry`, `ShellContext`, the extension-id constants, and `SettingsStore`. `qwapp-settings/frontend/tsconfig.json` maps the bare specifier `qwapp-frontend-api` to `../../qwapp-core/frontend/src/api`, resolved at build time via Vite's native `resolve.tsconfigPaths` option. Each consuming bundle still compiles its own copy of this code — that's fine, it's small — but there's exactly one source of truth for it. This is *not* a real npm package (no `package.json`, no version, no publish step); if a module ever needs to reach it from a more deeply nested folder, or if it grows enough that duplication becomes costly, real npm workspaces are the documented upgrade path.
+- Tabs are derived from navbar metadata (`routePath`, `label`).
+- Matching content extensions are associated by route context.
+- All pane sections are rendered once and then hidden/shown with the `hidden` attribute.
 
-**2. Shared runtime singletons, via `window` globals.**
-Types can be duplicated cheaply, but a *stateful instance* (the extension registry, the settings store) must be the same object across every bundle for cross-module coordination to work at all. `qwapp-core`'s bootstrap (`registry.ts`) is the only place that ever constructs these:
+Because panes stay mounted, module view instances are reused across navigation (for example map state remains in memory while switching tabs).
 
-```ts
-window.qwappRegistry = new ExtensionRegistry();
-window.qwappSettingsStore = new SettingsStore();
-```
+Path handling behavior:
 
-Every other module only ever reads `window.qwappRegistry` / `window.qwappSettingsStore` — it imports the *type* via the path alias, but the *instance* at runtime.
+- Browser URL is prefixed (`/app/...` by default).
+- Internal route matching uses de-prefixed route paths (for example `/settings`, `/map`).
 
-**3. Shared third-party dependencies, via import maps.**
-`lit` was being bundled separately into every module (~17KB duplicated per contribution), and — unlike our own registry — there's no first-party way to put a third-party library on `window` cleanly. Instead:
+## Shared frontend state
 
-- `qwapp-core/frontend/vite.config.ts` splits anything from `lit`/`@lit` into its own chunk, pinned to a stable, unhashed path: `assets/shared/lit.js` (via Rollup's `manualChunks` + `chunkFileNames`).
-- `qwapp-settings/frontend/vite.module.config.ts` marks `lit` as `external`, so its build leaves a bare `import { html } from "lit"` instead of bundling a copy.
-- `FrontendShellResource` injects the mapping — `{"imports": {"lit": "/assets/shared/lit.js"}}` — as an import map, so the browser resolves the bare specifier at runtime.
+Core registers a single app-wide state store instance:
 
-The set of shared dependencies is a small `Map<String,String>` constant in `FrontendShellResource` (`SHARED_DEPENDENCIES`). Adding a new shared package means: split it into a stable chunk in `qwapp-core`'s Vite config, add it to that map, and mark it `external` in every consuming module's build. It's a manual contract, not something enforced by tooling — the same kind of convention as `scriptPath` and the extension ids.
+- Capability: `APP_STATE_STORE_CAPABILITY` (`single`)
+- Implementation: `DefaultAppStateStore`
 
-## Build mechanism
+`AppStateStore` contains:
 
-Every module's `frontend/` subfolder is a normal Vite + TypeScript project. `frontend-maven-plugin` (configured once in the parent POM's `pluginManagement`, bound to `generate-resources`) runs `npm install` and `npm run build` as part of the ordinary Maven lifecycle — so `mvn package` alone produces a jar with the frontend embedded, no separate build step to remember.
+- `settings`
+- `moduleStates`
+- slice subscriptions (`subscribeSlice`, `subscribeModuleState`)
 
-Each build's `outDir` points directly into `src/main/resources/META-INF/resources` (or a namespaced subfolder of it), so Quarkus serves the result as-is — Quarkus automatically serves static content from `META-INF/resources` across *every* jar on the classpath, which is exactly what lets `sample-app` pick up `qwapp-settings`'s frontend assets just by depending on the jar.
+Settings module behavior:
 
-Filenames matter here more than they would in a single-app Vite project, because some of them are referenced from Java source (compile-time constants) or from generated HTML (`FrontendShellResource`), not just from Vite's own generated HTML:
+- Loads `/api/settings`.
+- Writes values into `AppStateStore`.
+- Updates are persisted through the settings REST API and reflected back in app state.
 
-| What | Filename | Why stable (unhashed) |
-|---|---|---|
-| `qwapp-core`'s own shell page | `shell.html` (renamed from `index.html`) | Needs a name a static route *won't* claim, so the dynamic resource can own `/` |
-| `qwapp-settings`'s contribution entry | `modules/settings/module.js` | Referenced by `SettingsFrontendContribution.scriptPath()`, a Java string constant |
-| Shared `lit` chunk | `assets/shared/lit.js` | Referenced by the import map `FrontendShellResource` generates |
-| `qwapp-core`'s own entry chunk | content-hashed, e.g. `assets/index-XXXX.js` | Never referenced from outside its own generated `shell.html` — Vite manages this reference itself, so hashing/cache-busting is safe here |
+Shell behavior:
 
-`qwapp-settings/frontend` also has a second Vite config, `vite.module.config.ts`, used only for the production contribution build (library mode, no HTML, no eager mounting). `npm run dev` still uses the default `vite.config.ts` with a normal `index.html` + eager mount, for fast isolated component iteration — the two are deliberately different builds with different jobs.
+- Subscribes to app state changes and applies theme from `settings.theme`.
 
-## Worked example: a setting used by two modules
+## Sharing code across separately built frontend bundles
 
-To exercise all of the above together: `qwapp-settings`'s `SettingsResource` (`GET`/`PUT /api/settings`, an in-memory `ConcurrentHashMap` — no real persistence, this is a demo) backs a shared `SettingsStore` (`qwapp-core/frontend/src/api/settings-store.ts`), instantiated once as `window.qwappSettingsStore` and loaded at shell bootstrap.
+Each module has an independent Vite build. Sharing is handled by three mechanisms.
 
-Two independently-bundled modules use it:
-- `qwapp-settings`'s `settings-view` renders a theme `<select>`; changing it calls `store.update({ theme })`, which `PUT`s to the backend and re-fires the store's `change` event.
-- `qwapp-core`'s own shell listens for that same `change` event and sets `document.documentElement.dataset.theme`, with a small global `<style>` in `index.html` reacting to `html[data-theme='dark']`.
+1. Shared source via path alias:
+- Frontend API types/contracts are imported through `qwapp-frontend-api` path mapping.
 
-Neither module fetches settings directly anymore — both go through the shared store, which owns the backend round-trip.
+2. Shared runtime singleton:
+- `window.qwappRegistry` is created once by core bootstrap.
+- `APP_STATE_STORE_CAPABILITY` is registered once in that registry.
 
-## Known rough edges
+3. Shared third-party dependency via import map:
+- Core emits `assets/shared/lit.js` as a stable entry.
+- Extension module bundles mark `lit` as external.
+- Backend injects import map resolving `lit` to that shared asset.
 
-- The settings store has no persistence beyond the running JVM (in-memory map) — fine for a demo, not for production.
-- The `qwapp-frontend-api` path alias is a relative filesystem path (`../../qwapp-core/frontend/src/api`); it gets more awkward the more nested a future module's folder is, and doesn't version independently. Real npm workspaces are the natural upgrade if this becomes painful.
-- The "shared dependency" list (currently just `lit`) is a manually-maintained contract across `qwapp-core`'s Vite config, each consuming module's Vite config, and `FrontendShellResource`'s `SHARED_DEPENDENCIES` map — nothing fails loudly if these drift out of sync (a module would just silently get a bundled copy again).
-- `sample-app` is a minimal proof of composition, not a real application — it has no frontend or backend code of its own beyond what it pulls in from `qwapp-core` and `qwapp-settings`.
+## Build and packaging
+
+Each module frontend is built by `frontend-maven-plugin` during Maven lifecycle and embedded under `META-INF/resources` in its jar.
+
+- Core shell build emits `shell.html` and shared assets.
+- Feature modules emit stable contribution entries (`modules/<module>/module.js`).
+
+At runtime, Quarkus serves static resources from all dependency jars, and the shell composes frontend modules dynamically from CDI contributions.
+
+## Notes
+
+- `sample-app` is intentionally thin; composition is the primary focus.
+- The settings backend is in-memory (demo behavior).
+- Shared dependency contracts (import map entries + externals) are convention-based and should be kept aligned when adding new shared packages.

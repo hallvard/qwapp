@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build --config vite.module.config.ts",
+    "watch": "vite build --watch --config vite.module.config.ts --emptyOutDir false",
     "preview": "vite preview"
   },
   "devDependencies": {

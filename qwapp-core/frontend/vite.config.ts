@@ -5,16 +5,17 @@ export default defineConfig({
     outDir: '../src/main/resources/META-INF/resources',
     emptyOutDir: true,
     rollupOptions: {
+      preserveEntrySignatures: 'strict',
+      input: {
+        shell: 'shell.html',
+        lit: 'src/shared/lit.ts',
+      },
       output: {
-        // Give `lit` a stable, unhashed path so extension modules can import
-        // it externally (via an import map) instead of bundling their own copy.
-        manualChunks(id) {
-          if (id.includes('node_modules/lit') || id.includes('node_modules/@lit')) {
-            return 'lit';
-          }
-        },
-        chunkFileNames: (chunkInfo) =>
+        // Emit a dedicated ESM entry for lit with stable named exports so
+        // extension modules can import from `lit` via the shell's import map.
+        entryFileNames: (chunkInfo) =>
           chunkInfo.name === 'lit' ? 'assets/shared/lit.js' : 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
       },
     },
   },
