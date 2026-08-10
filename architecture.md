@@ -97,6 +97,23 @@ Path handling behavior:
 - Browser URL is prefixed (`/app/...` by default).
 - Internal route matching uses de-prefixed route paths (for example `/settings`, `/map`).
 
+## Styling composed modules
+
+`qwapp-shell` is a `LitElement` with no `createRenderRoot` override, so it renders into its own shadow root by default — and a content extension's `factory(context)` return value (e.g. `html\`<ol-map-view></ol-map-view>\``) is interpolated directly into the shell's own `render()` output, landing inside that shadow root. Any module that wants to use a CSS component library (Designsystemet, or anything else with real component styling) inside its contributed view is composing across that boundary whether it means to or not, and shadow boundaries treat different kinds of CSS differently:
+
+- A custom property's **value**, once defined, inherits through any number of shadow boundaries like any other inherited property.
+- A **selector-matched rule** (`.foo{display:flex}`, `.ds-input[type=checkbox]{...}`) never crosses a shadow boundary in either direction — it only applies to elements in the same tree scope as the stylesheet.
+- `:root` only ever matches the true top-level document's `<html>`. It never matches a shadow host, at any depth. A stylesheet linked inside a shadow root that defines its tokens via `:root{...}` (as Designsystemet's theme file does) has those definitions silently match nothing.
+
+This means a component library whose design tokens are `:root`-scoped needs linking in **two different places** for both halves to work:
+
+1. **Once, globally, in `document.head`** — so the `:root` rules actually match something and the tokens get defined at all. Their values then inherit down through every shadow boundary between there and wherever the styled element lives.
+2. **Again, scoped to wherever the styled elements actually are** — so the library's selector-matched component rules (which don't inherit) have a matching stylesheet in the same tree scope to apply from.
+
+A module's own top-level view component should render into light DOM (`createRenderRoot() { return this; }`) rather than Lit's default shadow root. That collapses the module's own boundary, so its `render()` output can carry the second, scoped stylesheet link (and the module's own layout CSS — plain rules like `display:flex` need the same scoped treatment as the library's) as ordinary template content, landing in whatever scope the shell ends up placing that content in, without the module needing to know or care what that scope is.
+
+See `ol-map/frontend/src/map-view.ts` for a worked example: `ensureDesignsystemetTokens()` (global, once) alongside two `<link>` tags rendered directly in `render()` (scoped), plus a `<style>` block for the view's own layout, also rendered in `render()` rather than injected globally.
+
 ## Shared frontend state
 
 Core registers a single app-wide state store instance:
