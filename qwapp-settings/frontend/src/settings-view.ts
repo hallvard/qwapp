@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import type { Settings } from 'qwapp-frontend-api';
+import type { Settings, ViewManager } from 'qwapp-frontend-api';
 import {
   addSettingsListener,
   getSettings,
@@ -28,6 +28,8 @@ export class SettingsView extends LitElement {
   };
 
   declare settings: Settings;
+  /** Set by the module's view factory, used to open a single setting. */
+  viewManager?: ViewManager;
 
   private onStoreChange = () => {
     this.settings = { ...getSettings() };
@@ -48,6 +50,11 @@ export class SettingsView extends LitElement {
     super.disconnectedCallback();
   }
 
+  private openSetting(event: Event, key: string) {
+    event.preventDefault();
+    this.viewManager?.open('setting', key);
+  }
+
   private onThemeChange(event: Event) {
     const value = (event.target as HTMLSelectElement).value;
     void updateSettings({ theme: value });
@@ -58,7 +65,7 @@ export class SettingsView extends LitElement {
       <h2>Settings</h2>
       <dl>
         ${Object.entries(this.settings).map(
-          ([key, value]) => html`<dt>${key}</dt>
+          ([key, value]) => html`<dt><a href="#" @click=${(e: Event) => this.openSetting(e, key)}>${key}</a></dt>
             <dd>${value}</dd>`
         )}
       </dl>

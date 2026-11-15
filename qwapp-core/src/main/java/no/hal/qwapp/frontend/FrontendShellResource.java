@@ -33,7 +33,8 @@ public class FrontendShellResource {
 
     /** Packages the shell bundles at a stable path; extension modules import these externally. */
     private static final Map<String, String> SHARED_DEPENDENCIES = Map.of(
-            "lit", "/assets/shared/lit.js");
+            "lit", "/assets/shared/lit.js",
+            "lit/directives/keyed.js", "/assets/shared/lit-keyed.js");
 
     @Inject
     Instance<FrontendContribution> contributions;

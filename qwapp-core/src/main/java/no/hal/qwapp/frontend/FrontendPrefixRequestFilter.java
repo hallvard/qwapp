@@ -40,7 +40,12 @@ public class FrontendPrefixRequestFilter implements ContainerRequestFilter {
 
         String path = normalizePath(requestContext.getUriInfo().getPath());
         String normalizedPrefix = normalizePrefix(frontendPathPrefix);
-        if (!matchesFrontendPrefix(path, normalizedPrefix) || path.contains(".")) {
+        if (!matchesFrontendPrefix(path, normalizedPrefix)) {
+            return;
+        }
+        // A dot suggests a file, unless the client explicitly asked for HTML, as browsers do
+        // when navigating: view ids can contain dots (e.g. a model named Llama-3.1-8B).
+        if (path.contains(".") && !accept.contains("text/html")) {
             return;
         }
 

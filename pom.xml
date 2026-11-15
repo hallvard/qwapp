@@ -11,7 +11,8 @@
     <module>qwapp-api</module>
     <module>qwapp-core</module>
     <module>qwapp-settings</module>
-    <module>ol-map</module>
+    <module>qwapp-navbar-shell</module>
+    <module>qwapp-dock-shell</module>
     <module>sample-app</module>
   </modules>
 
@@ -62,7 +63,12 @@
       </dependency>
       <dependency>
         <groupId>no.hal.qwapp</groupId>
-        <artifactId>ol-map</artifactId>
+        <artifactId>qwapp-navbar-shell</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>no.hal.qwapp</groupId>
+        <artifactId>qwapp-dock-shell</artifactId>
         <version>${project.version}</version>
       </dependency>
     </dependencies>

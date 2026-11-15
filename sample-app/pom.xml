@@ -20,10 +20,6 @@
       <artifactId>qwapp-settings</artifactId>
     </dependency>
     <dependency>
-      <groupId>no.hal.qwapp</groupId>
-      <artifactId>ol-map</artifactId>
-    </dependency>
-    <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-junit5</artifactId>
       <scope>test</scope>
@@ -34,6 +30,38 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <profiles>
+    <!-- The shell is whichever shell module is on the classpath: nav bar by default, dock with -Ddock. -->
+    <profile>
+      <id>navbar-shell</id>
+      <activation>
+        <property>
+          <name>!dock</name>
+        </property>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>no.hal.qwapp</groupId>
+          <artifactId>qwapp-navbar-shell</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
+      <id>dock</id>
+      <activation>
+        <property>
+          <name>dock</name>
+        </property>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>no.hal.qwapp</groupId>
+          <artifactId>qwapp-dock-shell</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
 
   <build>
     <plugins>

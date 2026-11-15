@@ -9,12 +9,16 @@ export default defineConfig({
       input: {
         shell: 'shell.html',
         lit: 'src/shared/lit.ts',
+        'lit-keyed': 'src/shared/lit-keyed.ts',
       },
       output: {
-        // Emit a dedicated ESM entry for lit with stable named exports so
-        // extension modules can import from `lit` via the shell's import map.
+        // Emit dedicated ESM entries for lit with stable named exports so
+        // extension modules can import from `lit` (and the directives below)
+        // via the import map.
         entryFileNames: (chunkInfo) =>
-          chunkInfo.name === 'lit' ? 'assets/shared/lit.js' : 'assets/[name]-[hash].js',
+          chunkInfo.name === 'lit' || chunkInfo.name === 'lit-keyed'
+            ? `assets/shared/${chunkInfo.name}.js`
+            : 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',
       },
     },
