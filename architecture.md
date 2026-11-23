@@ -4,24 +4,30 @@ qwapp is a modular monolith: independently buildable Quarkus modules are compose
 
 ## Module layout
 
+The repository has two independent Maven builds, `qwapp-base` and `qwapp-example`, under a dev-only aggregator pom at the root:
+
 ```
-qwapp-parent (pom, reactor root)
-├── qwapp-api       shared backend SPI types
-├── qwapp-core      frontend composition/runtime (capabilities, registry, shell mounting)
-├── qwapp-settings  example feature module (settings API + UI)
-├── qwapp-llm       example feature module (language models on Hugging Face)
-├── qwapp-navbar-shell shell: one view at a time, nav bar + URL
-├── qwapp-dock-shell   shell: dock with several open views
-└── sample-app      runnable composition app
+qwapp/
+├── pom.xml, package.json   dev-only aggregators (one reactor / one npm workspace for both builds)
+├── qwapp-base/             published core: own parent pom (qwapp-parent) and release
+│   ├── qwapp-api           backend SPI types + the frontend API package (@hallvard/qwapp-api)
+│   ├── qwapp-core          frontend composition/runtime (registry, shell mounting)
+│   ├── qwapp-settings      feature module (settings API + UI)
+│   ├── qwapp-navbar-shell  shell: one view at a time, nav bar + URL
+│   └── qwapp-dock-shell    shell: dock with several open views
+└── qwapp-example/          standalone template: own parent pom (qwapp-example-parent)
+    ├── qwapp-llm           feature module (language models on Hugging Face)
+    └── sample-app          runnable composition app
 ```
 
 Dependency direction is one-way:
 
-- `qwapp-api` has no project-local dependencies.
-- `qwapp-core`, `qwapp-settings` and `qwapp-llm` depend on `qwapp-api`.
+- `qwapp-api` has no project-local dependencies (Java or npm).
+- `qwapp-core`, `qwapp-settings`, the shells and `qwapp-llm` depend on `qwapp-api`, never on each other's sources.
 - `sample-app` depends on the feature modules it wants to include.
+- `qwapp-example` depends on `qwapp-base` only through published artifacts.
 
-This keeps module boundaries clean and avoids cycles.
+This keeps module boundaries clean and avoids cycles. A module that offers a capability others build on should publish an API unit (Java, npm, or both, as needed) rather than have others link to its source.
 
 ## Backend composition (CDI + REST)
 
@@ -57,12 +63,12 @@ This allows deep-linking to frontend routes while keeping backend endpoints sepa
 
 The frontend no longer uses string extension-point IDs. It uses typed capability descriptors.
 
-Core primitives in `qwapp-core/frontend/src/api/capability.ts`:
+Core primitives in `qwapp-api/frontend/src/capability.ts` (package `@hallvard/qwapp-api`):
 
 - `defineSingleCapability<T>(key)`
 - `defineMultiCapability<T>(key)`
 
-The registry in `qwapp-core/frontend/src/api/index.ts` stores capability values by key:
+The registry in `qwapp-api/frontend/src/index.ts` stores capability values by key:
 
 - `registerCapability(capability, value)`
 - `getCapability(singleCapability)`
@@ -146,8 +152,9 @@ Shell behavior:
 
 Each module has an independent Vite build. Sharing is handled by three mechanisms.
 
-1. Shared source via path alias:
-- Frontend API types/contracts are imported through `qwapp-frontend-api` path mapping.
+1. Shared API via an npm package:
+- Frontend API types, capability keys and the registry class come from `@hallvard/qwapp-api` (`qwapp-base/qwapp-api/frontend`), a plain `tsc` package with no runtime dependencies.
+- Module bundles inline the parts they use, so everything that must be shared at runtime goes through the registry singleton below. Capability keys are plain strings, which is why inlined copies stay compatible.
 
 2. Shared runtime singleton:
 - `window.qwappRegistry` is created once by core bootstrap.
@@ -160,15 +167,29 @@ Each module has an independent Vite build. Sharing is handled by three mechanism
 
 ## Build and packaging
 
-Each module frontend is built by `frontend-maven-plugin` during Maven lifecycle and embedded under `META-INF/resources` in its jar.
+Each module frontend is built by `frontend-maven-plugin` during Maven lifecycle and embedded under `META-INF/resources` in its jar. `qwapp-api` is the exception: its frontend emits `dist/` for npm and nothing is embedded.
+
+Locally, the root `package.json` makes all frontends one npm workspace, so `@hallvard/qwapp-api` resolves to the sibling source. Built outside the repo, `qwapp-example` resolves it from the registry.
 
 - Core build emits `shell.html` and shared assets.
 - Feature modules emit stable contribution entries (`modules/<module>/module.js`).
 
 At runtime, Quarkus serves static resources from all dependency jars, and the shell composes frontend modules dynamically from CDI contributions.
 
+## Publishing
+
+Both ecosystems publish to GitHub Packages (`hallvard/qwapp`):
+
+- Maven: `qwapp-base` deploys with `distributionManagement`; `qwapp-example` declares the repository. Credentials: a `github` server in `~/.m2/settings.xml`.
+- npm: the `@hallvard` scope maps to `npm.pkg.github.com` in `.npmrc`. Credentials: the token in `GH_PACKAGES_TOKEN`, expanded in `.npmrc`; unset is fine unless installing from the scope.
+- Both need a token even to read public packages. Locally it is a classic PAT (`write:packages`) in `GH_PACKAGES_TOKEN`; in CI the workflow `publish-base.yml` maps the automatic `GITHUB_TOKEN` to the same name.
+- npm versions are immutable, so iterate with prereleases (`0.1.0-beta.N`, published with `--tag beta`; dependents use `^0.1.0-beta.N`). Maven `-SNAPSHOT`s can be redeployed.
+
+To verify the template, copy `qwapp-example/` outside the repo (so no workspace is picked up) and run `./mvnw verify`.
+
 ## Notes
 
 - `sample-app` is intentionally thin; composition is the primary focus.
+- Planned: the view capability should let a view's availability or visibility depend on user permissions, configuration and settings.
 - The settings backend is in-memory (demo behavior).
 - Shared dependency contracts (import map entries + externals) are convention-based and should be kept aligned when adding new shared packages.

@@ -44,10 +44,10 @@ Two shell modules implement the contract and provide the view manager. Which one
 builds the whole reactor. Each module also runs standalone in dev mode, e.g.:
 
 ```sh
-cd qwapp-core && ./mvnw quarkus:dev   # http://localhost:8080, empty shell
-cd qwapp-settings && ./mvnw quarkus:dev  # http://localhost:8081
-cd qwapp-llm && ./mvnw quarkus:dev       # http://localhost:8084 (backend only)
-cd sample-app && ./mvnw quarkus:dev   # http://localhost:8082, composed shell + modules
+cd qwapp-base/qwapp-core && ./mvnw quarkus:dev   # http://localhost:8080, empty shell
+cd qwapp-base/qwapp-settings && ./mvnw quarkus:dev  # http://localhost:8081
+cd qwapp-example/qwapp-llm && ./mvnw quarkus:dev       # http://localhost:8084 (backend only)
+cd qwapp-example/sample-app && ./mvnw quarkus:dev   # http://localhost:8082, composed shell + modules
 ```
 
 Each Quarkus module's `frontend/` subfolder is a Vite + TypeScript + Lit project, built automatically as part of `mvn package`/`install` via `frontend-maven-plugin`, with its output embedded into the module's own jar under `META-INF/resources`.
@@ -55,8 +55,8 @@ Each Quarkus module's `frontend/` subfolder is a Vite + TypeScript + Lit project
 When running `sample-app` with `sample-app/watch-frontends.sh`, start Quarkus dev separately and let the watcher script own frontend rebuilds:
 
 ```sh
-cd sample-app
-./watch-frontends.sh ../qwapp-core/frontend ../qwapp-settings/frontend ../qwapp-llm/frontend ../qwapp-navbar-shell/frontend
+cd qwapp-example/sample-app
+./watch-frontends.sh ../../qwapp-base/qwapp-core/frontend ../../qwapp-base/qwapp-settings/frontend ../qwapp-llm/frontend ../../qwapp-base/qwapp-navbar-shell/frontend
 mvn quarkus:dev
 ```
 
@@ -68,7 +68,7 @@ mvn quarkus:dev
 - Non-frontend routes remain owned by Quarkus/backend handlers.
 	- Example: `/q`, `/api/...`, OpenAPI and other backend endpoints are not handled by the frontend fallback.
 
-Configure the prefix in `qwapp-core/src/main/resources/application.properties`:
+Configure the prefix in `qwapp-base/qwapp-core/src/main/resources/application.properties`:
 
 ```properties
 qwapp.frontend.path-prefix=app
@@ -97,7 +97,7 @@ These become:
 
 ## Language model families (`qwapp-llm`)
 
-The families are configured in `qwapp-llm/src/main/resources/META-INF/microprofile-config.properties` (and can be overridden in the app's `application.properties`):
+The families are configured in `qwapp-example/qwapp-llm/src/main/resources/META-INF/microprofile-config.properties` (and can be overridden in the app's `application.properties`):
 
 ```properties
 qwapp.llm.families.llama.author=meta-llama   # the Hugging Face organization
@@ -113,3 +113,9 @@ qwapp.llm.families.llama.query.filter=gguf   # optional extra Hugging Face query
 - `GET /api/llm/families/{name}/{variant}` — one model (only models of the family's author can be reached)
 
 Responses from Hugging Face are cached for `qwapp.llm.cache-ttl` (10 minutes by default).
+
+## Repository layout
+
+- `qwapp-base/` — the published core (api, core, settings, shells). Own parent pom and release.
+- `qwapp-example/` — `qwapp-llm` and `sample-app`. Standalone: its parent pom does not reference `qwapp-base`, which it consumes as artifacts at `qwapp.version`. This is the folder to copy as a template.
+- The root `pom.xml` is a dev-only aggregator so both build in one reactor; build `qwapp-example/` alone after `./mvnw install` in `qwapp-base/`.

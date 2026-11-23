@@ -1,0 +1,39 @@
+name: Publish qwapp-base
+
+# Manual for now; publishes the Maven artifacts and the npm API package to GitHub Packages.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  # Same variable name as locally, filled from the automatic per-run token.
+  GH_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          server-id: github
+          server-username: ${{ github.actor }}
+          server-password: GH_PACKAGES_TOKEN
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Maven deploy (jars)
+        run: ./mvnw -B -f qwapp-base/pom.xml deploy
+      - name: npm publish (skip versions that already exist)
+        run: |
+          v=$(node -p "require('./qwapp-base/qwapp-api/frontend/package.json').version")
+          if npm view "@hallvard/qwapp-api@$v" version >/dev/null 2>&1; then
+            echo "@hallvard/qwapp-api@$v already published, skipping"
+          else
+            npm publish --workspace @hallvard/qwapp-api --tag beta
+          fi

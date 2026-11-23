@@ -1,0 +1,12 @@
+{
+  "name": "qwapp-dev",
+  "private": true,
+  "workspaces": [
+    "qwapp-base/qwapp-api/frontend",
+    "qwapp-base/qwapp-core/frontend",
+    "qwapp-base/qwapp-settings/frontend",
+    "qwapp-base/qwapp-navbar-shell/frontend",
+    "qwapp-base/qwapp-dock-shell/frontend",
+    "qwapp-example/qwapp-llm/frontend"
+  ]
+}
